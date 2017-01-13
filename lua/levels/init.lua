@@ -1,112 +1,111 @@
 local sql = sql
-util.AddNetworkString("TTTXP_GetXP")
-util.AddNetworkString("TTTXP_AddXP")
+util.AddNetworkString("Levels_GetXP")
+util.AddNetworkString("Levels_AddXP")
 local function sqlQuery(q)
 	local res = sql.Query(q)
 	if res==false then
-		error("Failure during SQL Query: "..sql.LastError())
+		Error("Failure during SQL Query: "..sql.LastError())
 		return false
 	end
 	return res
 end
-if not sql.TableExists("TTTXP") then
-	sqlQuery("CREATE TABLE TTTXP ( SteamID TEXT, XP INT, LEVEL INT, Unique(SteamID))")
+if not sql.TableExists("LevelSystem") then
+	sqlQuery("CREATE TABLE LevelSystem ( SteamID TEXT, XP INT, LEVEL INT, Unique(SteamID))")
 end
-local function createPlayer(steamid)
-	sqlQuery("INSERT INTO TTTXP (SteamID, XP, LEVEL) VALUES ('"..steamid.."', 0, 1)")
+function Levels.createPlayer(steamid)
+	sqlQuery("INSERT INTO LevelSystem (SteamID, XP, LEVEL) VALUES ('"..steamid.."', 0, 1)")
 end
-local function sendXP(ply)
-	net.Start("TTTXP_GetXP")
-		net.WriteInt(getPlayerXP(ply:SteamID()), 32)
-		net.WriteInt(getPlayerLevel(ply:SteamID()), 32)
+function Levels.sendXP(ply)
+	net.Start("Levels_GetXP")
+		net.WriteInt(Levels.getPlayerXP(ply:SteamID()), 32)
+		net.WriteInt(Levels.getPlayerLevel(ply:SteamID()), 32)
 	net.Send(ply)
 end
-hook.Add("PlayerAuthed", "TTTXP_Auth", function (ply, st, a)
-	if sqlQuery("SELECT * FROM TTTXP WHERE SteamID = '"..st.."'") then
-		sendXP(ply)
+hook.Add("PlayerAuthed", "Levels_Auth", function (ply, st, a)
+	if sqlQuery("SELECT * FROM LevelSystem WHERE SteamID = '"..st.."'") then
+		Levels.sendXP(ply)
 		return
 	end
-	createPlayer(st)
-	sendXP(ply)
+	Levels.createPlayer(st)
+	Levels.sendXP(ply)
 end)
-local xpUpdateBuffer = {}
-local function sendXPUpdate(ply, amt)
+Levels.xpUpdateBuffer = Levels.xpUpdateBuffer or {}
+function Levels.sendXPUpdate(ply, amt)
 	if not amt then return end
-	xpUpdateBuffer[ply] = (xpUpdateBuffer[ply] or 0) + amt
+	Levels.xpUpdateBuffer[ply] = (Levels.xpUpdateBuffer[ply] or 0) + amt
 end
-local function sendXPUpdates()
-	for ply,amt in pairs(xpUpdateBuffer) do
-		net.Start("TTTXP_AddXP")
+function Levels.sendXPUpdates()
+	for ply,amt in pairs(Levels.xpUpdateBuffer) do
+		net.Start("Levels_AddXP")
 			net.WriteInt(amt, 32)
 		net.Send(ply)
 	end
-	xpUpdateBuffer = {}
+	Levels.xpUpdateBuffer = {}
 end
-local function tttEndRound(result)
+function Levels.tttEndRound(result)
 	local winteam = (result==WIN_TRAITOR and ROLE_TRAITOR) or (result == WIN_INNOCENT and ROLE_INNOCENT)
 	for _,v in pairs(player.GetHumans()) do
 		if not v:Alive() and v:GetRole() != winteam then continue end
-		givePlayerXP(v:SteamID(), winteam==ROLE_TRAITOR and xpForTWin or xpForInnoWin)
+		Levels.givePlayerXP(v:SteamID(), winteam==ROLE_TRAITOR and Levels.xpForTWin or Levels.xpForInnoWin)
 	end
-	sendXPUpdates()
+	Levels.sendXPUpdates()
 end
-hook.Add("TTTEndRound","TTTXP_SendXPUpdates", tttEndRound)
-local function checkLevel(steamid)
-	local xp = getPlayerXP(steamid) or 0
-	if xp >= xpForLevel then
-		takePlayerXP(steamid, xpForLevel)
-		addPlayerLevel(steamid)
-		hook.Run("Levels_LevelUp", player.GetBySteamID(steamid), getPlayerLevel(steamid))
+hook.Add("TTTEndRound","Levels_SendXPUpdates", Levels.tttEndRound)
+function Levels.checkLevel(steamid)
+	local xp = Levels.getPlayerXP(steamid) or 0
+	if xp >= Levels.xpForLevel then
+		Levels.takePlayerXP(steamid, Levels.xpForLevel)
+		Levels.addPlayerLevel(steamid)
+		hook.Run("Levels_LevelUp", player.GetBySteamID(steamid), Levels.getPlayerLevel(steamid))
 	elseif xp<0 then
-		takePlayerLevel(steamid)
+		Levels.takePlayerLevel(steamid)
 	end
 end
-local function setPlayerXP(steamid, amt)
-	local res = sqlQuery("UPDATE TTTXP SET XP="..amt.." WHERE SteamID='"..steamid.."'")
-	checkLevel(steamid, amt)
+function Levels.setPlayerXP(steamid, amt)
+	local res = sqlQuery("UPDATE LevelSystem SET XP="..amt.." WHERE SteamID='"..steamid.."'")
+	Levels.checkLevel(steamid, amt)
 end
-local function getPlayerLevel(steamid)
-	local res = sqlQuery("SELECT LEVEL FROM TTTXP WHERE SteamID='"..steamid.."'")
+function Levels.getPlayerLevel(steamid)
+	local res = sqlQuery("SELECT LEVEL FROM LevelSystem WHERE SteamID='"..steamid.."'")
 	if res == false then
-		debugprint("Player didn't exist during getlevel: "..steamid)
-		createPlayer(steamid)
+		Levels.createPlayer(steamid)
 		return 1
 	end
 	return tonumber(res) or 1
 end
-local function addPlayerLevel(steamid)
-	sql.Query("UPDATE TTTXP SET LEVEL="..(getPlayerLevel(steamid)+1).." WHERE SteamID='"..steamid.."'")
+function Levels.addPlayerLevel(steamid)
+	sql.Query("UPDATE LevelSystem SET LEVEL="..(Levels.getPlayerLevel(steamid)+1).." WHERE SteamID='"..steamid.."'")
 end
-local function takePlayerLevel(steamid)
-	sql.Query("UPDATE TTTXP SET LEVEL="..(getPlayerLevel(steamid)-1).." WHERE SteamID='"..steamid.."'")
+function Levels.takePlayerLevel(steamid)
+	sql.Query("UPDATE LevelSystem SET LEVEL="..(Levels.getPlayerLevel(steamid)-1).." WHERE SteamID='"..steamid.."'")
 end
-local function getPlayerXP(steamid)
-	local res = sqlQuery("SELECT XP FROM TTTXP WHERE SteamID='"..steamid.."'")
+function Levels.getPlayerXP(steamid)
+	local res = sqlQuery("SELECT XP FROM LevelSystem WHERE SteamID='"..steamid.."'")
 	if res == false then
 		local err = sql.LastError()
 		if string.find(err, "exist") then
-			createPlayer(steamid)
-			return sqlQuery("SELECT XP FROM TTTXP WHERE SteamID='"..steamid.."'") or 0
+			Levels.createPlayer(steamid)
+			return sqlQuery("SELECT XP FROM LevelSystem WHERE SteamID='"..steamid.."'") or 0
 		end
 	end
 	return tonumber(res) or 0
 end
-local function givePlayerXP(steamid, amt)
-	local xp = getPlayerXP(steamid) or 0
-	sendXPUpdate(player.GetBySteamID(steamid), amt)
-	setPlayerXP(steamid, xp+amt)
+function Levels.givePlayerXP(steamid, amt)
+	local xp = Levels.getPlayerXP(steamid) or 0
+	Levels.sendXPUpdate(player.GetBySteamID(steamid), amt)
+	Levels.setPlayerXP(steamid, xp+amt)
 end
 
-local function takePlayerXP(steamid, amt)
-	local xp = getPlayerXP( steamid ) or 0
-	setPlayerXP( steamid, xp-amt)
+function Levels.takePlayerXP(steamid, amt)
+	local xp = Levels.getPlayerXP( steamid ) or 0
+	Levels.setPlayerXP( steamid, xp-amt)
 end
-hook.Add("PlayerDeath", "TTTXP_PlayerDeath", function(vic, inf, att)
+hook.Add("PlayerDeath", "Levels_PlayerDeath", function(vic, inf, att)
 	if vic == att then return end
 	if att:GetRole() == vic:GetRole() then 
-		if xpLossForTK > 0 then
-			takePlayerXP(att:SteamID(),xpLossForTK)
+		if Levels.xpLossForTK > 0 then
+			Levels.takePlayerXP(att:SteamID(), Levels.xpLossForTK)
 		end
 	end
-	givePlayerXP(att:SteamID(), att:GetRole() == ROLE_TRAITOR and xpForTKill or xpForInnoKill)
+	Levels.givePlayerXP(att:SteamID(), att:GetRole() == ROLE_TRAITOR and Levels.xpForTKill or Levels.xpForInnoKill)
 end)
