@@ -1,5 +1,6 @@
 if SERVER then
-	local version = "1.0"
+	local version = "1.1"
+	Levels = {}
 	include('levels/autoupdate.lua')
 	include('levels/init.lua')
 	AddCSLuaFile()
@@ -8,5 +9,6 @@ if SERVER then
 end
 include('levels/shared.lua')
 if CLIENT then
-include('levels/cl_init.lua')
+	Levels = {}
+	include('levels/cl_init.lua')
 end
